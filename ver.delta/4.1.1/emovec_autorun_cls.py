@@ -27,7 +27,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error
 
 # ------------------- SETTINGS -------------------
-DATA_PATH = "감성대화말뭉치(최종데이터)_Training.json"     # JSON array or JSONL
+DATA_PATH = "data/감성대화말뭉치(최종데이터)_Training.json"     # JSON array or JSONL
 OUT_DIR   = "emovec_autorun_cls_out"
 USE_SS    = False                        # 기본은 HS만 사용(노이즈 감소)
 

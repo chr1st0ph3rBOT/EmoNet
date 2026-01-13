@@ -29,13 +29,19 @@ import matplotlib.pyplot as plt
 # ============================================================
 
 # ------------------- SETTINGS -------------------
-BASE_DIR = pathlib.Path(".")
-DATA_PATH = BASE_DIR / "감성대화말뭉치(최종데이터)_Training.json"
-OUT_DIR   = BASE_DIR / "emovec_autorun_cls_out"
+import pathlib
+
+BASE_DIR = pathlib.Path.cwd()  # Path(".")보다 의도가 명확함
+
+DATA_PATH = BASE_DIR / "data" / "감성대화말뭉치(최종데이터)_Training.json"
+
+OUT_DIR = BASE_DIR / "ver.zeta"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MODEL_PATH = OUT_DIR / "emovec_autorun_cls.pkl"
-USE_SS    = False
+USE_SS = False
+
+
 
 # ------------------- Emotion code → 4D prototype -------------------
 EMOTION_VEC: Dict[str, List[float]] = {
@@ -100,7 +106,12 @@ def build_model():
     # [수정] min_df=1로 설정하여 소량의 데이터(Sample)에서도 학습되도록 함
     return Pipeline([
         ("tfidf", TfidfVectorizer(analyzer="char_wb", ngram_range=(3,5), min_df=1, max_features=300_000, sublinear_tf=True)),
-        ("clf", LogisticRegression(multi_class="multinomial", class_weight="balanced", max_iter=400, C=2.0, solver="lbfgs"))
+        ("clf", LogisticRegression(
+         class_weight="balanced",
+         max_iter=400,
+         C=2.0,
+         solver="lbfgs"
+        ))
     ])
 
 _EMOVEC_PIPE = None
@@ -512,7 +523,7 @@ def make_box_from_text(ipt_id: int, text: str) -> DataBox:
 
 def inject_and_run_until_arrival(start_text: str, max_ticks: int = 50, seed: int = 999, visualize: bool = True) -> None:
     log(f"[START] Text='{start_text}'")
-    
+    ensure_emovec_model()
     # 디버깅: 초기 입력값 확인
     box = make_box_from_text(ipt_id=1, text=start_text)
     print(f"\n📢 [DEBUG] INITIAL INPUT VECTOR (V0): {box.V}")
