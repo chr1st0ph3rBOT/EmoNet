@@ -1,0 +1,13 @@
+{
+  "data_used": "감성대화말뭉치(최종데이터)_Training.json",
+  "n_train": 167464,
+  "n_test": 41866,
+  "mae": 0.12645356280278228,
+  "r2_weighted": -1.4624866669267085,
+  "keys": [
+    "dopamine",
+    "serotonin",
+    "norepinephrine",
+    "melatonin"
+  ]
+}

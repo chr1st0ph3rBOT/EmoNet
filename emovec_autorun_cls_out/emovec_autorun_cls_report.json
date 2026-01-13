@@ -1,0 +1,16 @@
+{
+  "mode": "classification->vector_map",
+  "data_used": "C:\\Users\\Admin\\Documents\\GitHub\\emotionAI\\ver.epsilon\\감성대화말뭉치(최종데이터)_Training.json",
+  "use_ss": false,
+  "n_train": 116759,
+  "n_test": 29190,
+  "acc": 0.21531346351490235,
+  "f1_macro": 0.2148529140589591,
+  "mae_after_mapping": 0.09443936279547083,
+  "keys": [
+    "dopamine",
+    "serotonin",
+    "norepinephrine",
+    "melatonin"
+  ]
+}
