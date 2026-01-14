@@ -9,10 +9,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Deque, List, Tuple
+import json
 import logging
 import os
 import random
 import time
+import urllib.request
+import urllib.error
+import uuid
 from collections import deque
 
 import tkinter as tk
@@ -29,6 +33,9 @@ K_MIN = 0.0
 K_MAX = 2.0
 CONNECTION_DELTA_SCALE = 3
 HISTORY_LIMIT = 200
+LLM_DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+LLM_API_KEY = os.getenv("OPENAI_API_KEY", "")
+LLM_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 
 matplotlib.use("TkAgg")
@@ -42,6 +49,68 @@ def ensure_logs_dir(base_dir: str) -> str:
     log_dir = os.path.join(base_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
     return log_dir
+
+
+def parse_ntl_payload(payload: str) -> Vec4:
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        start = payload.find("{")
+        end = payload.rfind("}")
+        if start == -1 or end == -1:
+            raise ValueError("LLM JSON payload not found.")
+        data = json.loads(payload[start : end + 1])
+
+    values = [
+        clamp(float(data.get("D", 0.5)), 0.0, 1.0),
+        clamp(float(data.get("S", 0.5)), 0.0, 1.0),
+        clamp(float(data.get("NE", 0.5)), 0.0, 1.0),
+        clamp(float(data.get("M", 0.5)), 0.0, 1.0),
+    ]
+    return (values[0], values[1], values[2], values[3])
+
+
+def fetch_ntl_from_llm(text: str) -> Vec4:
+    if not LLM_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+
+    url = f"{LLM_API_BASE.rstrip('/')}/chat/completions"
+    system_prompt = (
+        "You are an emotion vector extractor. "
+        "Return ONLY JSON with keys D, S, NE, M in [0,1]."
+    )
+    user_prompt = f'문장: "{text}"'
+    payload = {
+        "model": LLM_DEFAULT_MODEL,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {LLM_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": f"EmoNet-ver-theta/{uuid.uuid4().hex}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"LLM HTTP error: {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError("LLM request failed.") from exc
+
+    data = json.loads(raw)
+    content = data["choices"][0]["message"]["content"]
+    return parse_ntl_payload(content)
 
 
 @dataclass
@@ -251,6 +320,7 @@ class ThetaApp:
         ttk.Button(button_frame, text="Inject", command=self.on_inject).pack(side=tk.LEFT, padx=4)
         ttk.Button(button_frame, text="Tick", command=self.on_tick).pack(side=tk.LEFT, padx=4)
         ttk.Button(button_frame, text="Run 10", command=lambda: self.run_ticks(10)).pack(side=tk.LEFT, padx=4)
+        ttk.Button(button_frame, text="LLM 분석", command=self.on_llm_analyze).pack(side=tk.LEFT, padx=4)
 
         status_frame = ttk.LabelFrame(main_frame, text="상태")
         status_frame.pack(fill=tk.X, pady=6)
@@ -275,6 +345,29 @@ class ThetaApp:
         box = DataBox(K=1.0, V=vec, trace=["IPT"])
         self.net.inject(box)
         self.logger.info("Inject text='%s' NTL=%s", text, vec)
+        self._record_state(vec)
+        self._update_status()
+
+    def on_llm_analyze(self) -> None:
+        text = self.text_entry.get().strip()
+        if not text:
+            self.status_label.config(text="텍스트를 입력하세요.")
+            return
+
+        try:
+            vec = fetch_ntl_from_llm(text)
+        except RuntimeError as exc:
+            self.status_label.config(text=str(exc))
+            return
+        except ValueError as exc:
+            self.status_label.config(text=str(exc))
+            return
+
+        for entry, value in zip(self.ntl_entries, vec):
+            entry.delete(0, tk.END)
+            entry.insert(0, f"{value:.3f}")
+
+        self.logger.info("LLM NTL text='%s' NTL=%s", text, vec)
         self._record_state(vec)
         self._update_status()
 

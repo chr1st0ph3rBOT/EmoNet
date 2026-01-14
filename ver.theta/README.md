@@ -15,6 +15,9 @@
 
 ## 실행 방법
 ```bash
+export OPENAI_API_KEY="YOUR_API_KEY"
+export OPENAI_MODEL="gpt-4o-mini"   # 선택
+export OPENAI_API_BASE="https://api.openai.com/v1"  # 선택
 python ver.theta/main.py
 ```
 
@@ -22,6 +25,7 @@ python ver.theta/main.py
 - **GUI**
   - 텍스트 입력 및 NTL 수동 입력
   - 스텝 실행/연속 실행
+  - LLM 분석 버튼으로 자동 NTL 추출
 - **로그**
   - `ver.theta/logs/`에 실행 로그 기록
 - **시각화**
@@ -44,5 +48,6 @@ python ver.theta/main.py
 - GUI에 실시간 그래프로 출력합니다.
 
 ## 메모
-- NTL 추출은 현재 수동 입력 방식입니다(LLM 결과 입력).
+- LLM 연동은 OpenAI 호환 API를 사용합니다(`OPENAI_API_KEY` 필요).
+- NTL 추출은 수동 입력 + LLM 자동 추출을 모두 지원합니다.
 - ML 방식은 정확도가 낮아 fallback으로만 고려합니다.
