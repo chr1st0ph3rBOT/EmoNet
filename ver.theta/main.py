@@ -33,9 +33,9 @@ K_MIN = 0.0
 K_MAX = 2.0
 CONNECTION_DELTA_SCALE = 3
 HISTORY_LIMIT = 200
-LLM_DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-LLM_API_KEY = os.getenv("OPENAI_API_KEY", "")
-LLM_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+LLM_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
+LLM_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 
 
 matplotlib.use("TkAgg")
@@ -72,28 +72,29 @@ def parse_ntl_payload(payload: str) -> Vec4:
 
 def fetch_ntl_from_llm(text: str) -> Vec4:
     if not LLM_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set.")
+        raise RuntimeError("GEMINI_API_KEY is not set.")
 
-    url = f"{LLM_API_BASE.rstrip('/')}/chat/completions"
+    base = LLM_API_BASE.rstrip("/")
+    model = LLM_DEFAULT_MODEL
+    url = f"{base}/models/{model}:generateContent?key={LLM_API_KEY}"
     system_prompt = (
         "You are an emotion vector extractor. "
         "Return ONLY JSON with keys D, S, NE, M in [0,1]."
     )
-    user_prompt = f'문장: "{text}"'
     payload = {
-        "model": LLM_DEFAULT_MODEL,
-        "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": f"{system_prompt}\n문장: \"{text}\""}],
+            }
         ],
+        "generationConfig": {"temperature": 0.2},
     }
 
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {LLM_API_KEY}",
             "Content-Type": "application/json",
             "User-Agent": f"EmoNet-ver-theta/{uuid.uuid4().hex}",
         },
@@ -109,7 +110,13 @@ def fetch_ntl_from_llm(text: str) -> Vec4:
         raise RuntimeError("LLM request failed.") from exc
 
     data = json.loads(raw)
-    content = data["choices"][0]["message"]["content"]
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError("LLM response missing candidates.")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    if not parts:
+        raise RuntimeError("LLM response missing content.")
+    content = "".join(part.get("text", "") for part in parts)
     return parse_ntl_payload(content)
 
 

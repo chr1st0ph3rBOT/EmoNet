@@ -15,9 +15,9 @@
 
 ## 실행 방법
 ```bash
-export OPENAI_API_KEY="YOUR_API_KEY"
-export OPENAI_MODEL="gpt-4o-mini"   # 선택
-export OPENAI_API_BASE="https://api.openai.com/v1"  # 선택
+export GEMINI_API_KEY="YOUR_API_KEY"
+export GEMINI_MODEL="gemini-1.5-flash"   # 선택
+export GEMINI_API_BASE="https://generativelanguage.googleapis.com/v1beta"  # 선택
 python ver.theta/main.py
 ```
 
@@ -48,6 +48,6 @@ python ver.theta/main.py
 - GUI에 실시간 그래프로 출력합니다.
 
 ## 메모
-- LLM 연동은 OpenAI 호환 API를 사용합니다(`OPENAI_API_KEY` 필요).
+- LLM 연동은 Gemini API를 사용합니다(`GEMINI_API_KEY` 필요).
 - NTL 추출은 수동 입력 + LLM 자동 추출을 모두 지원합니다.
 - ML 방식은 정확도가 낮아 fallback으로만 고려합니다.
