@@ -34,7 +34,7 @@ K_MAX = 2.0
 CONNECTION_DELTA_SCALE = 3
 HISTORY_LIMIT = 200
 LLM_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-LLM_API_KEY = os.getenv("GEMINI_API_KEY", "")
+LLM_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDvKZi-wfbIzKIGzjaAv-ZKsDMLEXx-xkM")
 LLM_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
 
 
