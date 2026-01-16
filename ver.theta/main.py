@@ -18,6 +18,7 @@ import urllib.request
 import urllib.error
 import uuid
 from collections import deque
+import math
 
 import tkinter as tk
 from tkinter import ttk
@@ -33,6 +34,13 @@ K_MIN = 0.0
 K_MAX = 2.0
 CONNECTION_DELTA_SCALE = 3
 HISTORY_LIMIT = 200
+MEMORY_LIMIT = 50
+K_REMEM = 1.2
+W_REMEM = 1.5
+K_LEAK = 0.9
+K_SPIKE_BONUS_ALPHA = 0.2
+K0_BASE = 0.8
+K0_NE_SCALE = 0.4
 LLM_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 LLM_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDvKZi-wfbIzKIGzjaAv-ZKsDMLEXx-xkM")
 LLM_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
@@ -124,6 +132,7 @@ def fetch_ntl_from_llm(text: str) -> Vec4:
 class DataBox:
     K: float
     V: Vec4
+    IPT: str
     trace: List[str]
 
 
@@ -138,11 +147,14 @@ class Edge:
 
 
 class Neuron:
-    def __init__(self, name: str, kind: str):
+    def __init__(self, name: str, kind: str, position: Tuple[float, float]):
         self.name = name
         self.kind = kind
+        self.position = position
         self.threshold = 0.4
         self.W = 1.0
+        self.memory: Deque[str] = deque(maxlen=MEMORY_LIMIT)
+        self.last_outbox: DataBox | None = None
         self._inbox: Deque[Tuple[DataBox, Edge]] = deque()
         self._next_inbox: Deque[Tuple[DataBox, Edge]] = deque()
         self.outgoing: List[Edge] = []
@@ -173,16 +185,22 @@ class Neuron:
             return
 
         V_in, K_in = self._combine_inputs()
-        trace = self._inbox[-1][0].trace[-5:] + [self.name]
+        last_box = self._inbox[-1][0]
+        trace = last_box.trace[-5:] + [self.name]
+
+        if K_in > K_REMEM or self.W > W_REMEM:
+            if not self.memory or self.memory[-1] != last_box.IPT:
+                self.memory.append(last_box.IPT)
 
         if K_in < self.threshold:
             self._inbox.clear()
             return
 
         K_out, V_out, d_conn = self._specific_op(K_in, V_in)
+        K_out = clamp(K_out * K_LEAK + K_SPIKE_BONUS_ALPHA * V_out[2], K_MIN, K_MAX)
         K_out = clamp(K_out * self.W, K_MIN, K_MAX)
 
-        outbox = DataBox(K=K_out, V=V_out, trace=trace)
+        outbox = DataBox(K=K_out, V=V_out, IPT=last_box.IPT, trace=trace)
         for edge in self.outgoing:
             edge.send(outbox)
 
@@ -190,6 +208,9 @@ class Neuron:
             self._apply_plasticity(net, d_conn)
 
         self._inbox.clear()
+        self.last_outbox = outbox
+        if self.kind == "reg":
+            self._apply_regulation(net, V_out)
         self.off_ticks = self.refractory
 
     def _combine_inputs(self) -> Tuple[Vec4, float]:
@@ -233,8 +254,7 @@ class Neuron:
 
     def _apply_plasticity(self, net: "Network", delta: int) -> None:
         if delta > 0:
-            candidates = [n for n in net.neurons if n is not self and all(e.dst is not n for e in self.outgoing)]
-            random.shuffle(candidates)
+            candidates = net.closest_candidates(self)
             for target in candidates[:delta]:
                 self.connect_to(target)
         elif delta < 0:
@@ -249,11 +269,22 @@ class Neuron:
                 if edge in edge.dst.incoming:
                     edge.dst.incoming.remove(edge)
 
+    def _apply_regulation(self, net: "Network", V_out: Vec4) -> None:
+        if not self.outgoing:
+            return
+        D, S, NE, M = V_out
+        off_add = 1 + int(round((NE + M) * 2))
+        targets = sorted(self.outgoing, key=lambda edge: net._distance(self, edge.dst))
+        target_count = min(len(targets), max(1, int(round(1 + NE + M))))
+        for edge in targets[:target_count]:
+            edge.dst.off_ticks += off_add
+
 
 class Network:
     def __init__(self, neurons: List[Neuron]):
         self.neurons = neurons
         self.source = neurons[0]
+        self.sink = neurons[-1]
 
     def wire_random(self, p: float = 0.5, seed: int = 42) -> None:
         rng = random.Random(seed)
@@ -271,12 +302,44 @@ class Network:
             neuron.tick(self)
 
     def inject(self, box: DataBox) -> None:
-        dummy = Neuron("Input", "exc")
+        dummy = Neuron("Input", "exc", self.source.position)
         edge = Edge(src=dummy, dst=self.source, W=1.0)
         self.source._next_inbox.append((box, edge))
 
     def connection_counts(self) -> List[int]:
         return [len(n.outgoing) for n in self.neurons]
+
+    def readout(self) -> Tuple[Vec4, float, List[str]]:
+        if not self.sink.last_outbox:
+            return (0.5, 0.5, 0.5, 0.5), 0.0, []
+        outbox = self.sink.last_outbox
+        memories: List[str] = []
+        neighbors = {edge.src for edge in self.sink.incoming} | {edge.dst for edge in self.sink.outgoing}
+        for neighbor in neighbors:
+            memories.extend(reversed(neighbor.memory))
+        seen: set[str] = set()
+        deduped = []
+        for item in memories:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return outbox.V, outbox.K, deduped
+
+    def closest_candidates(self, neuron: Neuron) -> List[Neuron]:
+        candidates = [
+            n
+            for n in self.neurons
+            if n is not neuron and all(e.dst is not n for e in neuron.outgoing)
+        ]
+        candidates.sort(key=lambda other: self._distance(neuron, other))
+        return candidates
+
+    @staticmethod
+    def _distance(a: Neuron, b: Neuron) -> float:
+        dx = a.position[0] - b.position[0]
+        dy = a.position[1] - b.position[1]
+        return math.hypot(dx, dy)
 
 
 class ThetaApp:
@@ -297,7 +360,11 @@ class ThetaApp:
 
     def _build_network(self) -> Network:
         kinds = ["exc"] * 10 + ["inh"] * 5 + ["reg"] * 5
-        neurons = [Neuron(f"N{i}", kind) for i, kind in enumerate(kinds)]
+        rng = random.Random(42)
+        neurons = [
+            Neuron(f"N{i}", kind, (rng.random(), rng.random()))
+            for i, kind in enumerate(kinds)
+        ]
         net = Network(neurons)
         net.wire_random(p=0.4, seed=42)
         return net
@@ -349,9 +416,10 @@ class ThetaApp:
         if vec is None:
             return
 
-        box = DataBox(K=1.0, V=vec, trace=["IPT"])
+        K0 = clamp(K0_BASE + K0_NE_SCALE * vec[2], K_MIN, K_MAX)
+        box = DataBox(K=K0, V=vec, IPT=text, trace=["IPT"])
         self.net.inject(box)
-        self.logger.info("Inject text='%s' NTL=%s", text, vec)
+        self.logger.info("Inject text='%s' K0=%.3f NTL=%s", text, K0, vec)
         self._record_state(vec)
         self._update_status()
 
@@ -384,7 +452,16 @@ class ThetaApp:
         avg_k = self._average_k()
         latest_ntl = self.history_ntl[-1] if self.history_ntl else (0.5, 0.5, 0.5, 0.5)
         self._record_state(latest_ntl, avg_k_override=avg_k)
-        self.logger.info("Tick=%s avg_K=%.3f connections=%s", self.tick_count, avg_k, self.history_conn[-1])
+        ntl_out, k_out, ipts = self.net.readout()
+        self.logger.info(
+            "Tick=%s avg_K=%.3f K_out=%.3f NTL_out=%s IPTs=%s connections=%s",
+            self.tick_count,
+            avg_k,
+            k_out,
+            ntl_out,
+            ipts,
+            self.history_conn[-1],
+        )
         self._update_status()
 
     def run_ticks(self, count: int) -> None:
@@ -431,7 +508,13 @@ class ThetaApp:
 
     def _update_status(self) -> None:
         avg_conn = self.history_conn[-1] if self.history_conn else 0.0
-        self.status_label.config(text=f"Tick: {self.tick_count} | Avg K: {self.history_k[-1]:.2f} | Avg Conn: {avg_conn:.1f}")
+        _, k_out, _ = self.net.readout()
+        self.status_label.config(
+            text=(
+                f"Tick: {self.tick_count} | Avg K: {self.history_k[-1]:.2f} | "
+                f"K_out: {k_out:.2f} | Avg Conn: {avg_conn:.1f}"
+            )
+        )
 
     def _update_plots(self) -> None:
         if not self.history_ntl:
