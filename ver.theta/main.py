@@ -124,6 +124,7 @@ def fetch_ntl_from_llm(text: str) -> Vec4:
 class DataBox:
     K: float
     V: Vec4
+    IPT: str
     trace: List[str]
 
 
@@ -173,7 +174,8 @@ class Neuron:
             return
 
         V_in, K_in = self._combine_inputs()
-        trace = self._inbox[-1][0].trace[-5:] + [self.name]
+        last_box = self._inbox[-1][0]
+        trace = last_box.trace[-5:] + [self.name]
 
         if K_in < self.threshold:
             self._inbox.clear()
@@ -182,7 +184,7 @@ class Neuron:
         K_out, V_out, d_conn = self._specific_op(K_in, V_in)
         K_out = clamp(K_out * self.W, K_MIN, K_MAX)
 
-        outbox = DataBox(K=K_out, V=V_out, trace=trace)
+        outbox = DataBox(K=K_out, V=V_out, IPT=last_box.IPT, trace=trace)
         for edge in self.outgoing:
             edge.send(outbox)
 
@@ -349,7 +351,7 @@ class ThetaApp:
         if vec is None:
             return
 
-        box = DataBox(K=1.0, V=vec, trace=["IPT"])
+        box = DataBox(K=1.0, V=vec, IPT=text, trace=["IPT"])
         self.net.inject(box)
         self.logger.info("Inject text='%s' NTL=%s", text, vec)
         self._record_state(vec)
