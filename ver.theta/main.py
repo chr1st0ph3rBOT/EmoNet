@@ -33,6 +33,9 @@ K_MIN = 0.0
 K_MAX = 2.0
 CONNECTION_DELTA_SCALE = 3
 HISTORY_LIMIT = 200
+MEMORY_LIMIT = 64
+K_REMEM = 1.2
+W_REMEM = 1.1
 LLM_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 LLM_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDvKZi-wfbIzKIGzjaAv-ZKsDMLEXx-xkM")
 LLM_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
@@ -125,6 +128,7 @@ class DataBox:
     K: float
     V: Vec4
     trace: List[str]
+    IPT: str | None = None
 
 
 @dataclass
@@ -149,6 +153,7 @@ class Neuron:
         self.incoming: List[Edge] = []
         self.refractory = 1
         self.off_ticks = 0
+        self.memory: Deque[str | None] = deque(maxlen=MEMORY_LIMIT)
 
     def connect_to(self, other: "Neuron") -> Edge:
         for edge in self.outgoing:
@@ -173,7 +178,15 @@ class Neuron:
             return
 
         V_in, K_in = self._combine_inputs()
-        trace = self._inbox[-1][0].trace[-5:] + [self.name]
+        latest_box = self._inbox[-1][0]
+        trace = latest_box.trace[-5:] + [self.name]
+
+        if K_in > K_REMEM or self.W > W_REMEM:
+            if not self.memory or self.memory[-1] != latest_box.IPT:
+                self.memory.append(latest_box.IPT)
+                logging.getLogger("theta").info(
+                    "memory_store node_code=%s IPT=%s", self.name, latest_box.IPT
+                )
 
         if K_in < self.threshold:
             self._inbox.clear()
@@ -182,7 +195,7 @@ class Neuron:
         K_out, V_out, d_conn = self._specific_op(K_in, V_in)
         K_out = clamp(K_out * self.W, K_MIN, K_MAX)
 
-        outbox = DataBox(K=K_out, V=V_out, trace=trace)
+        outbox = DataBox(K=K_out, V=V_out, trace=trace, IPT=latest_box.IPT)
         for edge in self.outgoing:
             edge.send(outbox)
 
@@ -349,7 +362,7 @@ class ThetaApp:
         if vec is None:
             return
 
-        box = DataBox(K=1.0, V=vec, trace=["IPT"])
+        box = DataBox(K=1.0, V=vec, trace=["IPT"], IPT=text)
         self.net.inject(box)
         self.logger.info("Inject text='%s' NTL=%s", text, vec)
         self._record_state(vec)
