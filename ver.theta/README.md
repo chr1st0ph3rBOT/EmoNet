@@ -47,7 +47,7 @@ ver.theta는 감정 상태 요약 벡터(`NTL`)와 내부 상태(`K`), 그리고
 - `K_REMEM`, `W_REMEM`: 기억 저장의 임계 기준(K, W).
 - `K_LEAK`, `K_SPIKE_BONUS_ALPHA`: K 누설 및 NE 보너스 계수.
 - `K0_BASE`, `K0_NE_SCALE`: 입력 단계 K0 기본값과 NE 반영 계수.
-- `LLM_*`: LLM 호출 모델/키/베이스 URL 환경변수.
+- `LLM_*`: LLM 호출 모델/베이스 URL 환경변수.
 
 ## 데이터 구조
 - `Vec4`: (D, S, NE, M) 4차원 감정 벡터.
@@ -55,7 +55,7 @@ ver.theta는 감정 상태 요약 벡터(`NTL`)와 내부 상태(`K`), 그리고
 - `Edge`: 뉴런 간 연결. `W`를 통해 가중치를 유지하며, `send()`로 다음 입력 버퍼에 전달한다.
 
 ## NTL 추출(LLM 연동)
-- `fetch_ntl_from_llm()`는 Gemini API를 호출해 D/S/NE/M JSON을 추출한다.
+- `fetch_ntl_from_llm()`는 Ollama API를 호출해 D/S/NE/M JSON을 추출한다.
 - 응답이 JSON이 아니면 문자열에서 `{...}` 구간만 파싱하는 폴백 로직을 제공한다.
 - `parse_ntl_payload()`는 D/S/NE/M 값을 0~1로 클램프한다.
 
