@@ -41,9 +41,8 @@ K_LEAK = 0.9
 K_SPIKE_BONUS_ALPHA = 0.2
 K0_BASE = 0.8
 K0_NE_SCALE = 0.4
-LLM_DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-LLM_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDvKZi-wfbIzKIGzjaAv-ZKsDMLEXx-xkM")
-LLM_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+LLM_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+LLM_API_BASE = os.getenv("OLLAMA_API_BASE", "http://localhost:11434")
 
 
 matplotlib.use("TkAgg")
@@ -79,24 +78,21 @@ def parse_ntl_payload(payload: str) -> Vec4:
 
 
 def fetch_ntl_from_llm(text: str) -> Vec4:
-    if not LLM_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY is not set.")
-
     base = LLM_API_BASE.rstrip("/")
     model = LLM_DEFAULT_MODEL
-    url = f"{base}/models/{model}:generateContent?key={LLM_API_KEY}"
+    url = f"{base}/api/chat"
     system_prompt = (
         "You are an emotion vector extractor. "
         "Return ONLY JSON with keys D, S, NE, M in [0,1]."
     )
     payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": f"{system_prompt}\n문장: \"{text}\""}],
-            }
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"문장: \"{text}\""},
         ],
-        "generationConfig": {"temperature": 0.2},
+        "stream": False,
+        "options": {"temperature": 0.2},
     }
 
     request = urllib.request.Request(
@@ -118,13 +114,10 @@ def fetch_ntl_from_llm(text: str) -> Vec4:
         raise RuntimeError("LLM request failed.") from exc
 
     data = json.loads(raw)
-    candidates = data.get("candidates", [])
-    if not candidates:
-        raise RuntimeError("LLM response missing candidates.")
-    parts = candidates[0].get("content", {}).get("parts", [])
-    if not parts:
+    message = data.get("message", {})
+    content = message.get("content", "")
+    if not content:
         raise RuntimeError("LLM response missing content.")
-    content = "".join(part.get("text", "") for part in parts)
     return parse_ntl_payload(content)
 
 
